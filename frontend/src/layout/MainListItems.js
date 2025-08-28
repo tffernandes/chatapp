@@ -305,7 +305,7 @@ const MainListItems = (props) => {
 	{showKanban && (  
 	  <ListItemLink
         to="/kanban"
-        primary={i18n.t("Kanban")}
+        primary={`Kanban`}
         icon={<TableChartIcon />}
       />
 	  )}
@@ -319,7 +319,7 @@ const MainListItems = (props) => {
 	  
 	  <ListItemLink
         to="/todolist"
-        primary={i18n.t("Tarefas")}
+        primary={i18n.t("mainDrawer.listItems.tasks")}
         icon={<BorderColorIcon />}
       />
 
@@ -506,8 +506,7 @@ const MainListItems = (props) => {
               </Hidden> 
               */}
               <Typography style={{ fontSize: "12px", padding: "10px", textAlign: "right", fontWeight: "bold" }}>
-                {`6.0.0`}
-
+                {version}
               </Typography>
             </React.Fragment>
             }

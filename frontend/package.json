@@ -2,7 +2,7 @@
   "name": "frontend",
   "version": "6.0.0",
   "versionSystem": "6.0.0",
-  "nomeEmpresa": "fala+",
+  "nomeEmpresa": "Atendechat",
   "private": true,
   "dependencies": {
     "@date-io/date-fns": "^2.14.0",
@@ -22,7 +22,6 @@
     "chart.js": "^3.9.1",
     "chartjs-plugin-datalabels": "^2.1.0",
     "context": "^4.0.0",
-    "cross-env": "^7.0.3",
     "date-fns": "^2.16.1",
     "emoji-mart": "^3.0.0",
     "formik": "^2.2.0",
@@ -64,10 +63,11 @@
     "use-debounce": "^7.0.0",
     "use-sound": "^2.0.1",
     "uuid": "^8.3.2",
+    "xlsx": "^0.18.5",
     "yup": "^0.32.8"
   },
   "scripts": {
-    "start": "cross-env NODE_OPTIONS='--openssl-legacy-provider' react-scripts start",
+    "start": "NODE_OPTIONS=--openssl-legacy-provider react-scripts start",
     "build": "NODE_OPTIONS=--openssl-legacy-provider GENERATE_SOURCEMAP=false react-scripts build",
     "builddev": "react-scripts build",
     "test": "react-scripts test",

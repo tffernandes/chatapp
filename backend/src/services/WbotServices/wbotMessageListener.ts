@@ -95,6 +95,14 @@ const getTypeMessage = (msg: proto.IWebMessageInfo): string => {
   return getContentType(msg.message);
 };
 
+function hasCaption(title: string, fileName: string) {
+  if(!title || !fileName) return false;
+
+  const fileNameExtension = fileName.substring(fileName.lastIndexOf('.') + 1);
+
+  return !fileName.includes(`${title}.${fileNameExtension}`)
+}
+
 export function validaCpfCnpj(val) {
   if (val.length == 11) {
     var cpf = val.trim();
@@ -368,7 +376,7 @@ export const getBodyMessage = (msg: proto.IWebMessageInfo): string | null => {
         msg.message?.locationMessage?.degreesLongitude
       ),
       liveLocationMessage: `Latitude: ${msg.message?.liveLocationMessage?.degreesLatitude} - Longitude: ${msg.message?.liveLocationMessage?.degreesLongitude}`,
-      documentMessage: msg.message?.documentMessage?.title,
+      documentMessage: msg.message?.documentMessage?.caption,
       documentWithCaptionMessage:
         msg.message?.documentWithCaptionMessage?.message?.documentMessage
           ?.caption,
@@ -667,10 +675,12 @@ const handleOpenAi = async (
     openai = sessionsOpenAi[openAiIndex];
   }
 
+  let maxMessages = prompt.maxMessages;
+
   const messages = await Message.findAll({
     where: { ticketId: ticket.id },
-    order: [["createdAt", "ASC"]],
-    limit: prompt.maxMessages
+    order: [["createdAt", "DESC"]],
+    limit: maxMessages
   });
 
   const promptSystem = `Nas respostas utilize o nome ${sanitizeName(
@@ -685,9 +695,12 @@ const handleOpenAi = async (
   if (msg.message?.conversation || msg.message?.extendedTextMessage?.text) {
     messagesOpenAi = [];
     messagesOpenAi.push({ role: "system", content: promptSystem });
-    for (let i = 0; i < Math.min(prompt.maxMessages, messages.length); i++) {
+    for (let i = 0; i < Math.min(maxMessages, messages.length); i++) {
       const message = messages[i];
-      if (message.mediaType === "chat") {
+      if (
+        message.mediaType === "conversation" ||
+        message.mediaType === "extendedTextMessage"
+      ) {
         if (message.fromMe) {
           messagesOpenAi.push({ role: "assistant", content: message.body });
         } else {
@@ -698,7 +711,7 @@ const handleOpenAi = async (
     messagesOpenAi.push({ role: "user", content: bodyMessage! });
 
     const chat = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo-1106",
+      model: prompt.model,
       messages: messagesOpenAi,
       max_tokens: prompt.maxTokens,
       temperature: prompt.temperature
@@ -713,6 +726,12 @@ const handleOpenAi = async (
         .trim();
     }
 
+    const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
+      text: response!
+    });
+    await verifyMessage(sentMessage!, ticket, contact);
+
+    /*
     if (prompt.voice === "texto") {
       const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
         text: response!
@@ -741,7 +760,7 @@ const handleOpenAi = async (
           console.log(`Erro para responder com audio: ${error}`);
         }
       });
-    }
+    }*/
   } else if (msg.message?.audioMessage) {
     const mediaUrl = mediaSent!.mediaUrl!.split("/").pop();
     const file = fs.createReadStream(`${publicFolder}/${mediaUrl}`) as any;
@@ -749,9 +768,12 @@ const handleOpenAi = async (
 
     messagesOpenAi = [];
     messagesOpenAi.push({ role: "system", content: promptSystem });
-    for (let i = 0; i < Math.min(prompt.maxMessages, messages.length); i++) {
+    for (let i = 0; i < Math.min(maxMessages, messages.length); i++) {
       const message = messages[i];
-      if (message.mediaType === "chat") {
+      if (
+        message.mediaType === "conversation" ||
+        message.mediaType === "extendedTextMessage"
+      ) {
         if (message.fromMe) {
           messagesOpenAi.push({ role: "assistant", content: message.body });
         } else {
@@ -761,7 +783,7 @@ const handleOpenAi = async (
     }
     messagesOpenAi.push({ role: "user", content: transcription.data.text });
     const chat = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo-1106",
+      model: prompt.model,
       messages: messagesOpenAi,
       max_tokens: prompt.maxTokens,
       temperature: prompt.temperature
@@ -774,7 +796,7 @@ const handleOpenAi = async (
         .replace("Ação: Transferir para o setor de atendimento", "")
         .trim();
     }
-    if (prompt.voice === "texto") {
+    /*if (prompt.voice === "texto") {
       const sentMessage = await wbot.sendMessage(msg.key.remoteJid!, {
         text: response!
       });
@@ -802,7 +824,7 @@ const handleOpenAi = async (
           console.log(`Erro para responder com audio: ${error}`);
         }
       });
-    }
+    }*/
   }
   messagesOpenAi = [];
 };
@@ -850,11 +872,14 @@ const verifyMediaMessage = async (
 
   const body = getBodyMessage(msg);
 
+  const hasCap = hasCaption(body, media.filename);
+  const bodyMessage = body ? hasCap ? formatBody(body, ticket.contact) : "-" : "-";
+
   const messageData = {
     id: msg.key.id,
     ticketId: ticket.id,
     contactId: msg.key.fromMe ? undefined : contact.id,
-    body: body ? formatBody(body, ticket.contact) : media.filename,
+    body: bodyMessage,
     fromMe: msg.key.fromMe,
     read: msg.key.fromMe,
     mediaUrl: media.filename,
@@ -867,7 +892,7 @@ const verifyMediaMessage = async (
   };
 
   await ticket.update({
-    lastMessage: body || media.filename
+    lastMessage: body || "Arquivo de mídia"
   });
 
   const newMessage = await CreateMessageService({
@@ -1830,31 +1855,6 @@ const handleMessage = async (
 
     try {
       if (!msg.key.fromMe) {
-        /**
-         * Tratamento para avaliação do atendente
-         */
-
-        //  // dev Ricardo: insistir a responder avaliação
-        //  const rate_ = Number(bodyMessage);
-
-        //  if ((ticket?.lastMessage.includes('_Insatisfeito_') || ticket?.lastMessage.includes('Por favor avalie nosso atendimento.')) &&  (!isFinite(rate_))) {
-        //      const debouncedSentMessage = debounce(
-        //        async () => {
-        //          await wbot.sendMessage(
-        //            `${ticket.contact.number}@${ticket.isGroup ? "g.us" : "s.whatsapp.net"
-        //            }`,
-        //            {
-        //              text: 'Por favor avalie nosso atendimento.'
-        //            }
-        //          );
-        //        },
-        //        1000,
-        //        ticket.id
-        //      );
-        //      debouncedSentMessage();
-        //      return;
-        //  }
-        //  // dev Ricardo
 
         if (ticketTraking !== null && verifyRating(ticketTraking)) {
           handleRating(parseFloat(bodyMessage), ticket, ticketTraking);
@@ -1971,18 +1971,6 @@ const handleMessage = async (
               return;
             }
           }
-        }
-      }
-    } catch (e) {
-      Sentry.captureException(e);
-      console.log(e);
-    }
-
-    try {
-      if (!msg.key.fromMe) {
-        if (ticketTraking !== null && verifyRating(ticketTraking)) {
-          handleRating(parseFloat(bodyMessage), ticket, ticketTraking);
-          return;
         }
       }
     } catch (e) {
@@ -2226,19 +2214,15 @@ const verifyRecentCampaign = async (
   if (!message.key.fromMe) {
     const number = message.key.remoteJid.replace(/\D/g, "");
     const campaigns = await Campaign.findAll({
-      where: { companyId, status: "EM_ANDAMENTO", confirmation: true }
+      where: { companyId, status: "EM_ANDAMENTO" }
     });
     if (campaigns) {
       const ids = campaigns.map(c => c.id);
       const campaignShipping = await CampaignShipping.findOne({
-        where: { campaignId: { [Op.in]: ids }, number, confirmation: null }
+        where: { campaignId: { [Op.in]: ids }, number }
       });
 
       if (campaignShipping) {
-        await campaignShipping.update({
-          confirmedAt: moment(),
-          confirmation: true
-        });
         await campaignQueue.add(
           "DispatchCampaign",
           {
